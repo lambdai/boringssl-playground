@@ -1,5 +1,8 @@
+
 #try-import %workspace%/clang.bazelrc
 #try-import %workspace%/user.bazelrc
+
+build --cxxopt='-std=c++2a'
 
 #build --cxxopt=-fuse-ld=lld
 #build --cxxopt=-stdlib=libc++
