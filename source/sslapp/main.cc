@@ -1,3 +1,8 @@
+#include <arpa/inet.h>
+#include <stdio.h>
+#include <sys/socket.h>
+#include <unistd.h>
+
 #include "glog/logging.h"
 
 #include "external/boringssl/src/include/openssl/bio.h"
@@ -28,6 +33,49 @@ private:
   }
 };
 
+class ServerSocket {
+public:
+  explicit ServerSocket(int port) : port_(port) {
+    fd_ = ::socket(AF_INET, SOCK_STREAM, 0);
+  }
+  ~ServerSocket() {
+    if (fd_ >= 0) {
+      close(fd_);
+      fd_ = -1;
+    }
+  }
+  bool bind() {
+    struct sockaddr_in addr = {
+        .sin_family = AF_INET,
+        .sin_port = htons(port_),
+        .sin_addr =
+            {
+                .s_addr = htonl(INADDR_ANY),
+            },
+    };
+    if (::bind(fd_, reinterpret_cast<const struct sockaddr *>(&addr),
+             static_cast<socklen_t>(sizeof(addr))) < 0) {
+      LOG(ERROR) << "bind error on " << fd_;
+      return false;
+    }
+    return true;
+  }
+  bool listen() {
+    if (::listen(fd_, 1) < 0) {
+      LOG(ERROR) << "listen error on " << fd_;
+      return false;
+    }
+    return true;
+  }
+
+  int getFd() { return fd_; }
+
+  bool valid() { return fd_ >= 0; }
+
+private:
+  int fd_;
+  int port_;
+};
 int main(int argc, char **argv) {
   // Inspired by https://wiki.openssl.org/index.php/Simple_TLS_Server
 
@@ -45,11 +93,13 @@ int main(int argc, char **argv) {
 
   // No-op in boringssl: SSL_CTX_set_ecdh_auto(ctx, onoff);
 
-  if (SSL_CTX_use_certificate_file(ctx, "./data/server.crt", SSL_FILETYPE_PEM) <= 0) {
+  if (SSL_CTX_use_certificate_file(ctx, "./data/server.crt",
+                                   SSL_FILETYPE_PEM) <= 0) {
     LOG(FATAL) << "cannot read from cert in pem";
   }
 
-  if (SSL_CTX_use_PrivateKey_file(ctx, "./data/server.key", SSL_FILETYPE_PEM) <= 0) {
+  if (SSL_CTX_use_PrivateKey_file(ctx, "./data/server.key", SSL_FILETYPE_PEM) <=
+      0) {
     LOG(FATAL) << "cannot read from key in pem";
   }
   // SSL respresents a connection. It inherits settings from ctx. It is thread
@@ -60,12 +110,16 @@ int main(int argc, char **argv) {
     LOG(FATAL) << "cannot create new ssl";
     return 1;
   }
+  ServerSocket socket(4443);
+  if (!(socket.valid() && socket.bind() && socket.listen())) {
+    LOG(FATAL) << "Fail to listen on port 4443 ";
+  }
 
-  LOG(INFO) << "Hello, boringssl " << ssl;
-  // configure_context(ctx);
-  // int sock = create_socket(4433);
+  LOG(INFO) << "Listening on port 4443 " << ssl;
 
-  // /* Handle connections */
+  while (true) {
+    //auto client = 
+  }
   // while(1) {
   //     struct sockaddr_in addr;
   //     uint len = sizeof(addr);
