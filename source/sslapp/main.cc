@@ -1,4 +1,5 @@
 #include <arpa/inet.h>
+#include <memory>
 #include <stdio.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -33,6 +34,21 @@ private:
   }
 };
 
+class ClientSocket {
+public:
+  ClientSocket() {}
+  explicit ClientSocket(int fd) : fd_(fd) {}
+  ~ClientSocket() {
+    if (fd_ >= 0) {
+      close(fd_);
+      fd_ = -1;
+    }
+  }
+  bool valid() { return fd_ >= 0; }
+
+  int fd_{-1};
+  struct sockaddr_in sock_addr_;
+};
 class ServerSocket {
 public:
   explicit ServerSocket(int port) : port_(port) {
@@ -54,7 +70,7 @@ public:
             },
     };
     if (::bind(fd_, reinterpret_cast<const struct sockaddr *>(&addr),
-             static_cast<socklen_t>(sizeof(addr))) < 0) {
+               static_cast<socklen_t>(sizeof(addr))) < 0) {
       LOG(ERROR) << "bind error on " << fd_;
       return false;
     }
@@ -71,6 +87,20 @@ public:
   int getFd() { return fd_; }
 
   bool valid() { return fd_ >= 0; }
+
+  std::unique_ptr<ClientSocket> accept() {
+    auto socket = std::make_unique<ClientSocket>();
+    socklen_t sock_len = 0;
+    int fd =
+        ::accept(fd_, reinterpret_cast<struct sockaddr *>(&socket->sock_addr_),
+                 &sock_len);
+    if (fd < 0) {
+      LOG(ERROR) << "accept error on port " << port_;
+      return nullptr;
+    }
+    socket->fd_ = fd;
+    return socket;
+  }
 
 private:
   int fd_;
@@ -102,23 +132,48 @@ int main(int argc, char **argv) {
       0) {
     LOG(FATAL) << "cannot read from key in pem";
   }
-  // SSL respresents a connection. It inherits settings from ctx. It is thread
-  // migratable but it is not thread-safe.
-  // SSL can reset ctx, or override settings from ctx.
-  SSL *ssl = SSL_new(ctx);
-  if (!ssl) {
-    LOG(FATAL) << "cannot create new ssl";
-    return 1;
-  }
-  ServerSocket socket(4443);
-  if (!(socket.valid() && socket.bind() && socket.listen())) {
+
+  ServerSocket server_socket(4443);
+  if (!(server_socket.valid() && server_socket.bind() &&
+        server_socket.listen())) {
     LOG(FATAL) << "Fail to listen on port 4443 ";
   }
 
-  LOG(INFO) << "Listening on port 4443 " << ssl;
+  LOG(INFO) << "Listening on port 4443 ";
 
   while (true) {
-    //auto client = 
+    auto client = server_socket.accept();
+    if (!client) {
+      LOG(INFO) << "error when creating new connected socket";
+      continue;
+    }
+    LOG(INFO) << "new client connected, fd = " << client->fd_
+              << ", peer addr = "
+              << "UNKNOWN";
+    // SSL respresents a connection. It inherits settings from ctx. It is thread
+    // migratable but it is not thread-safe.
+    // SSL can reset ctx, or override settings from ctx.
+    SSL *ssl = SSL_new(ctx);
+    if (!ssl) {
+      LOG(FATAL) << "cannot create new ssl";
+    }
+    SSL_set_fd(ssl, client->fd_);
+
+    LOG(INFO) << "ssl server handshake";
+    // set as server SSL and call SSL_do_handshake.
+    if (int res = SSL_accept(ssl); res <= 0) {
+      int error_code = SSL_get_error(ssl, res);
+      const char *error_str = SSL_error_description(error_code);
+      LOG(ERROR) << "ssl server handshake error: "
+                 << (error_str == nullptr ? "UNKNOWN" : error_str);
+      SSL_free(ssl);
+      continue;
+    } else {
+      LOG(INFO) << "ssl connection created.";
+    }
+    SSL_shutdown(ssl);
+    SSL_free(ssl);
+    // client socket is destroyed here.
   }
   // while(1) {
   //     struct sockaddr_in addr;
@@ -148,7 +203,7 @@ int main(int argc, char **argv) {
   // }
 
   // close(sock);
-  SSL_free(ssl);
+  // SSL_free(ssl);
   SSL_CTX_free(ctx);
   // cleanup_openssl();
   return 0;
