@@ -1,0 +1,4 @@
+data/*.key
+data/*.crt
+data/*.csr
+data/*.srl
