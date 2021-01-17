@@ -45,12 +45,12 @@ int main(int argc, char **argv) {
 
   // No-op in boringssl: SSL_CTX_set_ecdh_auto(ctx, onoff);
 
-  if (SSL_CTX_use_certificate_file(ctx, "cert.pem", SSL_FILETYPE_PEM) <= 0) {
-    LOG(FATAL) << "cannot read from cert.pem";
+  if (SSL_CTX_use_certificate_file(ctx, "./data/server.crt", SSL_FILETYPE_PEM) <= 0) {
+    LOG(FATAL) << "cannot read from cert in pem";
   }
 
-  if (SSL_CTX_use_PrivateKey_file(ctx, "key.pem", SSL_FILETYPE_PEM) <= 0) {
-    LOG(FATAL) << "cannot read from key.pem";
+  if (SSL_CTX_use_PrivateKey_file(ctx, "./data/server.key", SSL_FILETYPE_PEM) <= 0) {
+    LOG(FATAL) << "cannot read from key in pem";
   }
   // SSL respresents a connection. It inherits settings from ctx. It is thread
   // migratable but it is not thread-safe.
