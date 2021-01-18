@@ -133,6 +133,8 @@ int main(int argc, char **argv) {
     LOG(FATAL) << "cannot read from key in pem";
   }
 
+  // Call SSL_CTX_load_verify_locations() to load root CA.
+
   ServerSocket server_socket(4443);
   if (!(server_socket.valid() && server_socket.bind() &&
         server_socket.listen())) {
@@ -157,7 +159,9 @@ int main(int argc, char **argv) {
     if (!ssl) {
       LOG(FATAL) << "cannot create new ssl";
     }
-    SSL_set_fd(ssl, client->fd_);
+    // SSL_set_fd(ssl, client->fd_);
+    BIO *bio = BIO_new_socket(client->fd_, 0);
+    SSL_set_bio(ssl, bio, bio);
 
     LOG(INFO) << "ssl server handshake";
     // set as server SSL and call SSL_do_handshake.
@@ -170,8 +174,21 @@ int main(int argc, char **argv) {
       continue;
     } else {
       LOG(INFO) << "ssl connection created.";
+      char buf[1024];
+      int rc = SSL_read(ssl, buf, sizeof(buf));
+      if (rc > 0) {
+        LOG(INFO) << "SSL_read returns " << rc
+                  << ". Content: " << std::string(buf, rc);
+        // Write at best effort.
+        SSL_write(ssl, buf, rc);
+      } else if (rc == 0) {
+        LOG(INFO) << "SSL_read returns EOF";
+      } else {
+        LOG(INFO) << "SSL_read returns error: " << rc;
+      }
     }
     SSL_shutdown(ssl);
+    BIO_free(bio);
     SSL_free(ssl);
     // client socket is destroyed here.
   }
