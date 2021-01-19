@@ -10,6 +10,18 @@
 #include "external/boringssl/src/include/openssl/err.h"
 #include "external/boringssl/src/include/openssl/ssl.h"
 
+// originate from kernel/include/uapi/linux/tcp.h
+#include "linux/tcp.h"
+
+// current kernel headers
+// #include "linux/socket.h"
+
+// kernel/include/linux/socket.h"
+#define SOL_TCP 6
+
+// originate from kernel/include/uapi/linux/tls.h
+#include "linux/tls.h"
+
 class SslOnce {
 public:
   static void init() {
@@ -106,6 +118,33 @@ private:
   int fd_;
   int port_;
 };
+
+bool setup_ulp(int fd) {
+  if (setsockopt(fd, SOL_TCP, TCP_ULP, "tls", sizeof("tls")) != 0) {
+    return false;
+  }
+}
+
+bool setup_sock_crypto(int sock) {
+
+  struct tls12_crypto_info_aes_gcm_256 crypto_info;
+
+  // crypto_info.info.version = TLS_1_3_VERSION;
+  // crypto_info.info.cipher_type = TLS_CIPHER_AES_GCM_256;
+  // memcpy(crypto_info.iv, iv_write, TLS_CIPHER_AES_GCM_128_IV_SIZE);
+  // memcpy(crypto_info.rec_seq, seq_number_write,
+  //                                       TLS_CIPHER_AES_GCM_128_REC_SEQ_SIZE);
+  // memcpy(crypto_info.key, cipher_key_write, TLS_CIPHER_AES_GCM_128_KEY_SIZE);
+  // memcpy(crypto_info.salt, implicit_iv_write,
+  // TLS_CIPHER_AES_GCM_128_SALT_SIZE);
+
+  if (setsockopt(sock, SOL_TLS, TLS_TX, &crypto_info, sizeof(crypto_info)) !=
+      0) {
+    return false;
+  }
+  return true;
+}
+
 int main(int argc, char **argv) {
   // Inspired by https://wiki.openssl.org/index.php/Simple_TLS_Server
 
@@ -174,6 +213,17 @@ int main(int argc, char **argv) {
       continue;
     } else {
       LOG(INFO) << "ssl connection created.";
+
+      if (!setup_ulp(client->fd_)) {
+        LOG(FATAL) << "Failed in setup ulp";
+      }
+      LOG(INFO) << "setsockopt ULP.";
+
+      if (!setup_sock_crypto(client->fd_)) {
+        LOG(FATAL) << "Failed in setup kernel crypto";
+      }
+      LOG(INFO) << "setsockopt SOL_TLS.";
+
       char buf[1024];
       int rc = SSL_read(ssl, buf, sizeof(buf));
       if (rc > 0) {
@@ -192,35 +242,7 @@ int main(int argc, char **argv) {
     SSL_free(ssl);
     // client socket is destroyed here.
   }
-  // while(1) {
-  //     struct sockaddr_in addr;
-  //     uint len = sizeof(addr);
-  //     SSL *ssl;
-  //     const char reply[] = "test\n";
 
-  //     int client = accept(sock, (struct sockaddr*)&addr, &len);
-  //     if (client < 0) {
-  //         perror("Unable to accept");
-  //         exit(EXIT_FAILURE);
-  //     }
-
-  //     ssl = SSL_new(ctx);
-  //     SSL_set_fd(ssl, client);
-
-  //     if (SSL_accept(ssl) <= 0) {
-  //         ERR_print_errors_fp(stderr);
-  //     }
-  //     else {
-  //         SSL_write(ssl, reply, strlen(reply));
-  //     }
-
-  //     SSL_shutdown(ssl);
-  //     SSL_free(ssl);
-  //     close(client);
-  // }
-
-  // close(sock);
-  // SSL_free(ssl);
   SSL_CTX_free(ctx);
   // cleanup_openssl();
   return 0;
