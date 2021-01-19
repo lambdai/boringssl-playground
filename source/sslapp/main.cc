@@ -65,6 +65,13 @@ class ServerSocket {
 public:
   explicit ServerSocket(int port) : port_(port) {
     fd_ = ::socket(AF_INET, SOCK_STREAM, 0);
+    int reuse = 1;
+    int rc = setsockopt(fd_, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(int));
+    if (rc < 0) {
+      LOG(INFO) << "Unable to set SO_REUSEADDR";
+    } else {
+      LOG(INFO) << "Set SO_REUSEADDR";
+    }
   }
   ~ServerSocket() {
     if (fd_ >= 0) {
@@ -119,18 +126,30 @@ private:
   int port_;
 };
 
+void dumpCurrentCipher(const SSL *ssl) {
+  const SSL_CIPHER *cipher = SSL_get_current_cipher(ssl);
+  if (cipher == nullptr) {
+    LOG(FATAL) << "Unknown cipher";
+  }
+  LOG(INFO) << "cipher: " << SSL_CIPHER_get_name(cipher);
+}
+
 bool setup_ulp(int fd) {
-  if (setsockopt(fd, SOL_TCP, TCP_ULP, "tls", sizeof("tls")) != 0) {
+  if (int res = setsockopt(fd, SOL_TCP, TCP_ULP, "tls", sizeof("tls"));
+      res < 0) {
+    LOG(INFO) << "setsockopt SOL_TCP returns " << res;
+    perror("setsockopt ULP");
     return false;
   }
+  return true;
 }
 
 bool setup_sock_crypto(int sock) {
 
   struct tls12_crypto_info_aes_gcm_256 crypto_info;
 
-  // crypto_info.info.version = TLS_1_3_VERSION;
-  // crypto_info.info.cipher_type = TLS_CIPHER_AES_GCM_256;
+  crypto_info.info.version = TLS_1_3_VERSION;
+  crypto_info.info.cipher_type = TLS_CIPHER_AES_GCM_256;
   // memcpy(crypto_info.iv, iv_write, TLS_CIPHER_AES_GCM_128_IV_SIZE);
   // memcpy(crypto_info.rec_seq, seq_number_write,
   //                                       TLS_CIPHER_AES_GCM_128_REC_SEQ_SIZE);
@@ -138,14 +157,18 @@ bool setup_sock_crypto(int sock) {
   // memcpy(crypto_info.salt, implicit_iv_write,
   // TLS_CIPHER_AES_GCM_128_SALT_SIZE);
 
-  if (setsockopt(sock, SOL_TLS, TLS_TX, &crypto_info, sizeof(crypto_info)) !=
-      0) {
+  if (int res =
+          setsockopt(sock, SOL_TLS, TLS_TX, &crypto_info, sizeof(crypto_info));
+      res < 0) {
+    LOG(INFO) << "setsockopt SOL_TLS, TLS_TX returns " << res;
+    perror("setsockopt SOL_TLS, TLS_TX");
     return false;
   }
   return true;
 }
 
 int main(int argc, char **argv) {
+  LOG(WARN) << "must run as sudo or set CAP_NET_ADMIN";
   // Inspired by https://wiki.openssl.org/index.php/Simple_TLS_Server
 
   SslOnce::init();
@@ -214,8 +237,9 @@ int main(int argc, char **argv) {
     } else {
       LOG(INFO) << "ssl connection created.";
 
+      dumpCurrentCipher(ssl);
       if (!setup_ulp(client->fd_)) {
-        LOG(FATAL) << "Failed in setup ulp";
+        LOG(FATAL) << "Failed in setup ulp on fd " << client->fd_;
       }
       LOG(INFO) << "setsockopt ULP.";
 
