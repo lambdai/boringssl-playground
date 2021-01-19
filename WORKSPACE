@@ -47,3 +47,15 @@ git_repository(
     commit = "bdbe37905216bea8dd4d0fdee93f6ee415d3aa15",
     remote = "https://boringssl.googlesource.com/boringssl",
 )
+
+new_local_repository(
+    name = "kernelheaders",
+    path = "/usr/src/linux-headers-5.4.0-58/include",
+    build_file_content = """
+package(default_visibility = ["//visibility:public"])
+cc_library(
+    name = "headers",
+    hdrs = glob(["**/*.h"])
+)
+"""
+)
