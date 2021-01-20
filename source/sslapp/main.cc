@@ -132,6 +132,10 @@ void dumpCurrentCipher(const SSL *ssl) {
     LOG(FATAL) << "Unknown cipher";
   }
   LOG(INFO) << "cipher: " << SSL_CIPHER_get_name(cipher);
+  uint64_t read_seq = SSL_get_read_sequence(ssl);
+  LOG(INFO) << "read sequence nr: " << read_seq;
+  //LOG(INFO) << ssl->s3;
+  SSL_foo();
 }
 
 bool setup_ulp(int fd) {
@@ -148,14 +152,15 @@ bool setup_sock_crypto(int sock) {
 
   struct tls12_crypto_info_aes_gcm_256 crypto_info;
 
+  // TODO(lambdai): Not sure if this TLS12 struct can be used by tls13.
   crypto_info.info.version = TLS_1_3_VERSION;
   crypto_info.info.cipher_type = TLS_CIPHER_AES_GCM_256;
-  // memcpy(crypto_info.iv, iv_write, TLS_CIPHER_AES_GCM_128_IV_SIZE);
+  // memcpy(crypto_info.iv, iv_write, TLS_CIPHER_AES_GCM_256_IV_SIZE);
   // memcpy(crypto_info.rec_seq, seq_number_write,
-  //                                       TLS_CIPHER_AES_GCM_128_REC_SEQ_SIZE);
-  // memcpy(crypto_info.key, cipher_key_write, TLS_CIPHER_AES_GCM_128_KEY_SIZE);
+  //                                       TLS_CIPHER_AES_GCM_256_REC_SEQ_SIZE);
+  // memcpy(crypto_info.key, cipher_key_write, TLS_CIPHER_AES_GCM_256_KEY_SIZE);
   // memcpy(crypto_info.salt, implicit_iv_write,
-  // TLS_CIPHER_AES_GCM_128_SALT_SIZE);
+  // TLS_CIPHER_AES_GCM_256_SALT_SIZE);
 
   if (int res =
           setsockopt(sock, SOL_TLS, TLS_TX, &crypto_info, sizeof(crypto_info));
@@ -168,7 +173,7 @@ bool setup_sock_crypto(int sock) {
 }
 
 int main(int argc, char **argv) {
-  LOG(WARN) << "must run as sudo or set CAP_NET_ADMIN";
+  LOG(WARNING) << "must run as sudo or set CAP_NET_ADMIN";
   // Inspired by https://wiki.openssl.org/index.php/Simple_TLS_Server
 
   SslOnce::init();

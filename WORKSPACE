@@ -57,10 +57,15 @@ http_archive(
 #     build_file = "//bazel:glog.BUILD",
 # )
 
-git_repository(
+# git_repository(
+#     name = "boringssl",
+#     commit = "bdbe37905216bea8dd4d0fdee93f6ee415d3aa15",
+#     remote = "https://boringssl.googlesource.com/boringssl",
+# )
+
+local_repository(
     name = "boringssl",
-    commit = "bdbe37905216bea8dd4d0fdee93f6ee415d3aa15",
-    remote = "https://boringssl.googlesource.com/boringssl",
+    path = "/home/lambdai/workspace/boringssl",
 )
 
 new_local_repository(
