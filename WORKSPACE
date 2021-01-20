@@ -34,13 +34,28 @@ http_archive(
     build_file = "//bazel:gtest.BUILD",
 )
 
+
+http_archive(
+    name = "com_github_gflags_gflags",
+    sha256 = "34af2f15cf7367513b352bdcd2493ab14ce43692d2dcd9dfc499492966c64dcf",
+    strip_prefix = "gflags-2.2.2",
+    urls = ["https://github.com/gflags/gflags/archive/v2.2.2.tar.gz"],
+)
+
 http_archive(
     name = "glog",
-    url = "https://github.com/google/glog/archive/v0.4.0.tar.gz",
-    sha256 = "f28359aeba12f30d73d9e4711ef356dc842886968112162bc73002645139c39c",
-    strip_prefix = "glog-0.4.0",
-    build_file = "//bazel:glog.BUILD",
+    sha256 = "62efeb57ff70db9ea2129a16d0f908941e355d09d6d83c9f7b18557c0a7ab59e",
+    strip_prefix = "glog-d516278b1cd33cd148e8989aec488b6049a4ca0b",
+    urls = ["https://github.com/google/glog/archive/d516278b1cd33cd148e8989aec488b6049a4ca0b.zip"],
 )
+
+# http_archive(
+#     name = "glog",
+#     url = "https://github.com/google/glog/archive/v0.4.0.tar.gz",
+#     sha256 = "f28359aeba12f30d73d9e4711ef356dc842886968112162bc73002645139c39c",
+#     strip_prefix = "glog-0.4.0",
+#     build_file = "//bazel:glog.BUILD",
+# )
 
 git_repository(
     name = "boringssl",
