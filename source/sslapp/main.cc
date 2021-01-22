@@ -4,6 +4,10 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <iomanip>
+#include <iostream>
+#include <sstream>
+
 #include "glog/logging.h"
 
 #include "external/boringssl/src/include/openssl/bio.h"
@@ -134,7 +138,6 @@ void dumpCurrentCipher(const SSL *ssl) {
   LOG(INFO) << "cipher: " << SSL_CIPHER_get_name(cipher);
   uint64_t read_seq = SSL_get_read_sequence(ssl);
   LOG(INFO) << "read sequence nr: " << read_seq;
-  //LOG(INFO) << ssl->s3;
   SSL_foo();
 }
 
@@ -148,19 +151,36 @@ bool setup_ulp(int fd) {
   return true;
 }
 
-bool setup_sock_crypto(int sock) {
+bool setup_sock_crypto(int sock, const SSL *ssl) {
 
-  struct tls12_crypto_info_aes_gcm_256 crypto_info;
+  struct tls12_crypto_info_aes_gcm_128 crypto_info;
 
   // TODO(lambdai): Not sure if this TLS12 struct can be used by tls13.
   crypto_info.info.version = TLS_1_3_VERSION;
-  crypto_info.info.cipher_type = TLS_CIPHER_AES_GCM_256;
-  // memcpy(crypto_info.iv, iv_write, TLS_CIPHER_AES_GCM_256_IV_SIZE);
+  crypto_info.info.cipher_type = TLS_CIPHER_AES_GCM_128;
+  bssl::SymmetricInfo info(ssl, 0 /* WRITE */);
+  {
+    std::ostringstream os;
+    os << "in " << __FUNCTION__ << ", key = ";
+    for (const auto k : info.key_) {
+      os << std::hex << std::setw(2) << static_cast<int>(k) << " ";
+    }
+    LOG(INFO) << os.str();
+  }
+  {
+    std::ostringstream os;
+    os << "in " << __FUNCTION__ << ", iv = ";
+    for (const auto k : info.iv_) {
+      os << std::hex << std::setw(2) << static_cast<int>(k) << " ";
+    }
+    LOG(INFO) << os.str();
+  }
+  // memcpy(crypto_info.iv, iv_write, TLS_CIPHER_AES_GCM_128_IV_SIZE);
   // memcpy(crypto_info.rec_seq, seq_number_write,
-  //                                       TLS_CIPHER_AES_GCM_256_REC_SEQ_SIZE);
-  // memcpy(crypto_info.key, cipher_key_write, TLS_CIPHER_AES_GCM_256_KEY_SIZE);
+  //                                       TLS_CIPHER_AES_GCM_128_REC_SEQ_SIZE);
+  // memcpy(crypto_info.key, cipher_key_write, TLS_CIPHER_AES_GCM_128_KEY_SIZE);
   // memcpy(crypto_info.salt, implicit_iv_write,
-  // TLS_CIPHER_AES_GCM_256_SALT_SIZE);
+  // TLS_CIPHER_AES_GCM_128_SALT_SIZE);
 
   if (int res =
           setsockopt(sock, SOL_TLS, TLS_TX, &crypto_info, sizeof(crypto_info));
@@ -187,7 +207,8 @@ int main(int argc, char **argv) {
   if (!ctx) {
     LOG(FATAL) << "cannot create new ssl context";
   }
-
+  SSL_CTX_set_keylog_callback(
+      ctx, [](const SSL *ssl, const char *line) { LOG(INFO) << line; });
   // No-op in boringssl: SSL_CTX_set_ecdh_auto(ctx, onoff);
 
   if (SSL_CTX_use_certificate_file(ctx, "./data/server.crt",
@@ -226,6 +247,7 @@ int main(int argc, char **argv) {
     if (!ssl) {
       LOG(FATAL) << "cannot create new ssl";
     }
+
     // SSL_set_fd(ssl, client->fd_);
     BIO *bio = BIO_new_socket(client->fd_, 0);
     SSL_set_bio(ssl, bio, bio);
@@ -248,7 +270,7 @@ int main(int argc, char **argv) {
       }
       LOG(INFO) << "setsockopt ULP.";
 
-      if (!setup_sock_crypto(client->fd_)) {
+      if (!setup_sock_crypto(client->fd_, ssl)) {
         LOG(FATAL) << "Failed in setup kernel crypto";
       }
       LOG(INFO) << "setsockopt SOL_TLS.";
