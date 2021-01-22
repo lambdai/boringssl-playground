@@ -151,14 +151,22 @@ bool setup_ulp(int fd) {
   return true;
 }
 
-bool setup_sock_crypto(int sock, const SSL *ssl) {
+bool setup_sock_crypto(int sock, const SSL *ssl, int direction) {
 
   struct tls12_crypto_info_aes_gcm_128 crypto_info;
+
+  const SSL_CIPHER *cipher = SSL_get_current_cipher(ssl);
+  if (cipher == nullptr) {
+    LOG(FATAL) << "Unknown cipher";
+  }
+  LOG(INFO) << "cipher: " << SSL_CIPHER_get_name(cipher);
+  uint64_t seq =
+      direction == 0 ? SSL_get_write_sequence(ssl) : SSL_get_read_sequence(ssl);
 
   // TODO(lambdai): Not sure if this TLS12 struct can be used by tls13.
   crypto_info.info.version = TLS_1_3_VERSION;
   crypto_info.info.cipher_type = TLS_CIPHER_AES_GCM_128;
-  bssl::SymmetricInfo info(ssl, 0 /* WRITE */);
+  bssl::SymmetricInfo info(ssl, direction);
   {
     std::ostringstream os;
     os << "in " << __FUNCTION__ << ", key = ";
@@ -175,15 +183,13 @@ bool setup_sock_crypto(int sock, const SSL *ssl) {
     }
     LOG(INFO) << os.str();
   }
-  // memcpy(crypto_info.iv, iv_write, TLS_CIPHER_AES_GCM_128_IV_SIZE);
-  // memcpy(crypto_info.rec_seq, seq_number_write,
-  //                                       TLS_CIPHER_AES_GCM_128_REC_SEQ_SIZE);
-  // memcpy(crypto_info.key, cipher_key_write, TLS_CIPHER_AES_GCM_128_KEY_SIZE);
-  // memcpy(crypto_info.salt, implicit_iv_write,
-  // TLS_CIPHER_AES_GCM_128_SALT_SIZE);
+  memcpy(crypto_info.rec_seq, &seq, TLS_CIPHER_AES_GCM_128_REC_SEQ_SIZE);
+  memcpy(crypto_info.key, info.key_.data(), TLS_CIPHER_AES_GCM_128_KEY_SIZE);
+  memcpy(crypto_info.salt, info.iv_.data(), TLS_CIPHER_AES_GCM_128_SALT_SIZE);
+  memcpy(crypto_info.iv, info.iv_.data() + 4, TLS_CIPHER_AES_GCM_128_IV_SIZE);
 
-  if (int res =
-          setsockopt(sock, SOL_TLS, TLS_TX, &crypto_info, sizeof(crypto_info));
+  if (int res = setsockopt(sock, SOL_TLS, direction == 0 ? TLS_TX : TLS_RX,
+                           &crypto_info, sizeof(crypto_info));
       res < 0) {
     LOG(INFO) << "setsockopt SOL_TLS, TLS_TX returns " << res;
     perror("setsockopt SOL_TLS, TLS_TX");
@@ -270,12 +276,23 @@ int main(int argc, char **argv) {
       }
       LOG(INFO) << "setsockopt ULP.";
 
-      if (!setup_sock_crypto(client->fd_, ssl)) {
-        LOG(FATAL) << "Failed in setup kernel crypto";
+      if (!setup_sock_crypto(client->fd_, ssl, 0 /*Write*/)) {
+        LOG(FATAL) << "Failed in setup kernel crypto TX";
       }
-      LOG(INFO) << "setsockopt SOL_TLS.";
-
+      LOG(INFO) << "setsockopt SOL_TLS at TX";
+      if (!setup_sock_crypto(client->fd_, ssl, 1 /*Read*/)) {
+        LOG(FATAL) << "Failed in setup kernel crypto RX";
+      }
+      LOG(INFO) << "setsockopt SOL_TLS at TX";
       char buf[1024];
+      ::write(client->fd_, "abc", 3);
+      int ssl_rc = ::read(client->fd_, buf, sizeof(buf) - 1);
+      if (ssl_rc > 0) {
+        buf[ssl_rc] = '\0';
+        LOG(INFO) << "Read record from kernel: " << buf;
+      } else {
+        LOG(INFO) << "Error read record from kernel";
+      }
       int rc = SSL_read(ssl, buf, sizeof(buf));
       if (rc > 0) {
         LOG(INFO) << "SSL_read returns " << rc
