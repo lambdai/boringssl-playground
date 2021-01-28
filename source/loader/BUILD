@@ -6,7 +6,7 @@ cc_library(
     hdrs = ["loader.h"],
     copts = [
         # TODO(lambdai): cannot directly include kernel headers in userspace app.
-        #"-I/home/lambdai/workspace/ubuntu-focal/tools/lib",
+        #"-I/home/lambdai/workspace/linux5.8/tools/lib",
         "-lbpf",
         "-lelf",
         "-lz",
@@ -15,6 +15,7 @@ cc_library(
         "@kernel_src_tools_lib//:headers",
         "@glog",
         "@elf//:lib",
+        "@zlib//:lib",
         # TODO(lambdai): cannot directly include kernel headers in userspace app.
         #"@kernelheaders//:headers",
     ],
