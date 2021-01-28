@@ -10,12 +10,12 @@ char _license[] SEC("license") = "GPL";
 
 #define NR_PAIR 100
 
-struct bpf_map_def SEC("maps") sock_map = {
-    .type = BPF_MAP_TYPE_SOCKMAP,
-    .key_size = sizeof(int),
-    .value_size = sizeof(int),
-    .max_entries = 2,
-};
+// struct bpf_map_def SEC("maps") sock_map = {
+//     .type = BPF_MAP_TYPE_SOCKMAP,
+//     .key_size = sizeof(int),
+//     .value_size = sizeof(int),
+//     .max_entries = 2,
+// };
 
 struct conn4_key {
   __u32 local;
@@ -50,12 +50,18 @@ int _prog_parser(struct __sk_buff *skb) {
   return skb->len;
 }
 
-// SEC("prog_verdict")
-// int _prog_verdict(struct __sk_buff *skb) {
-//   char debug_msg[] = "prog_parser verdict called\n";
-//   bpf_trace_printk(debug_msg, sizeof(debug_msg));
-//   __u32 key = 0;
-//   // struct conn4_key conn_key;
-//   return bpf_sk_redirect_map(skb, &sock_map, key, 0);
-//   // return bpf_sk_redirect_hash(skb, &peer_socks, &key, 0);
-// }
+SEC("prog_verdict")
+int _prog_verdict(struct __sk_buff *skb) {
+  char debug_msg[] = "prog_parser verdict called\n";
+  bpf_trace_printk(debug_msg, sizeof(debug_msg));
+  //__u32 key = 0;
+  // return bpf_sk_redirect_map(skb, &sock_map, key, 0);
+  struct conn4_key conn_key = {
+      .local = 0,
+      .remote = 0,
+      .lport = 0,
+      .rport = 0,
+      .family = 0,
+  };
+  return bpf_sk_redirect_hash(skb, &peer_socks, &conn_key, 0);
+}
