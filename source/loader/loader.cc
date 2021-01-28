@@ -22,8 +22,9 @@ void bpf_check_ptr(const void *obj, const char *name) {
   err = libbpf_get_error(obj);
   if (err) {
     libbpf_strerror(err, err_buf, sizeof(err_buf));
-    LOG(INFO) << "bpf: " << name << err_buf;
+    LOG(INFO) << "bpf error: " << name << err_buf;
   }
+  LOG(INFO) << name << " load complete";
 }
 
 struct bpf_program *do_bpf_get_prog(const char *name, enum bpf_prog_type type) {
@@ -54,8 +55,8 @@ void do_bpf_setup() {
   struct bpf_program *prog_parse, *prog_verdict;
   struct bpf_map *map;
 
-  obj = bpf_object__open("data/stream.bpf.o");
-  //obj = bpf_object__open("source/bpf/stream.bpf.o");
+  // obj = bpf_object__open("data/stream.bpf.o");
+  obj = bpf_object__open("source/bpf/stream.bpf.o");
   bpf_check_ptr(obj, "obj");
 
   prog_parse = do_bpf_get_prog("prog_parser", BPF_PROG_TYPE_SK_SKB);
@@ -67,7 +68,8 @@ void do_bpf_setup() {
   if (bpf_object__load(obj)) {
     LOG(FATAL) << "bpf object load: " << libbpf_get_error(obj);
   }
-  map = bpf_object__find_map_by_name(obj, "sock_map");
+  LOG(INFO) << "bpf object loaded";
+  map = bpf_object__find_map_by_name(obj, "peer_socks");
   bpf_check_ptr(map, "map");
   map_fd = bpf_map__fd(map);
 
