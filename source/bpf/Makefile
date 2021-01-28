@@ -1,6 +1,6 @@
 .PHONY: all clean
 
-KSRC=/home/lambdai/workspace/ubuntu-focal
+KSRC=/home/lambdai/workspace/linux5.8
 CLANG=clang
 LLC=llc
 

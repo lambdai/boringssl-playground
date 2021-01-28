@@ -75,6 +75,23 @@ cc_library(
     path = "/usr/lib/x86_64-linux-gnu",
 )
 
+new_local_repository(
+    name = "zlib",
+    build_file_content = """
+package(default_visibility = ["//visibility:public"])
+#cc_import(
+#    name = "lib",
+#    static_library="libz.a",
+#)
+cc_library(
+   name = "lib",
+   srcs = ["libz.so"],
+)
+""",
+    path = "/usr/lib/x86_64-linux-gnu",
+)
+
+
 local_repository(
     name = "boringssl",
     path = "/home/lambdai/workspace/boringssl",
@@ -89,7 +106,7 @@ cc_library(
     hdrs = glob(["**/*.h"])
 )
 """,
-    path = "/usr/src/linux-headers-5.4.73-custom+/include",
+    path = "/usr/src/linux-headers-5.8.0-custom/include",
 )
 
 new_local_repository(
@@ -106,5 +123,5 @@ cc_import(
      static_library = "bpf/libbpf.a",
 )
 """,
-    path = "/home/lambdai/workspace/ubuntu-focal/tools/lib",
+    path = "/home/lambdai/workspace/linux5.8/tools/lib",
 )
