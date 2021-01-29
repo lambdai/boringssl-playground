@@ -1,4 +1,6 @@
 #include <arpa/inet.h>
+#include <cerrno>
+#include <cstring>
 #include <memory>
 #include <stdio.h>
 #include <sys/socket.h>
@@ -54,6 +56,27 @@ class ClientSocket {
 public:
   ClientSocket() {}
   explicit ClientSocket(int fd) : fd_(fd) {}
+  bool connect(const std::string &ipv4, int port) {
+    if (!::inet_pton(AF_INET, ipv4.data(), &sock_addr_.sin_addr)) {
+      return false;
+    }
+    sock_addr_.sin_port = htons(port);
+    sock_addr_.sin_family = AF_INET;
+    fd_ = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd_ < 0) {
+      LOG(ERROR) << "fail to create socket: " << strerror(errno);
+      return false;
+    }
+    LOG(INFO) << "connecting";
+    int res =
+        ::connect(fd_, reinterpret_cast<const struct sockaddr *>(&sock_addr_),
+                  sizeof(struct sockaddr_in));
+    if (res < 0) {
+      LOG(ERROR) << "connect" << strerror(errno);
+      return false;
+    }
+    return true;
+  }
   ~ClientSocket() {
     if (fd_ >= 0) {
       close(fd_);
@@ -238,6 +261,8 @@ int main(int argc, char **argv) {
   LOG(INFO) << "Listening on port 4443 ";
 
   while (true) {
+    char buf[1024];
+    int n_read = 0;
     auto client = server_socket.accept();
     if (!client) {
       LOG(INFO) << "error when creating new connected socket";
@@ -284,31 +309,54 @@ int main(int argc, char **argv) {
         LOG(FATAL) << "Failed in setup kernel crypto RX";
       }
       LOG(INFO) << "setsockopt SOL_TLS at TX";
-      char buf[1024];
       ::write(client->fd_, "abc", 3);
       int ssl_rc = ::read(client->fd_, buf, sizeof(buf) - 1);
       if (ssl_rc > 0) {
-        buf[ssl_rc] = '\0';
-        LOG(INFO) << "Read record from kernel: " << buf;
+        n_read = ssl_rc;
+        // buf[ssl_rc] = '\0';
+        LOG(INFO) << "Read record from kernel: " << std::string(buf, n_read);
       } else {
         LOG(INFO) << "Error read record from kernel";
       }
-      int rc = SSL_read(ssl, buf, sizeof(buf));
-      if (rc > 0) {
-        LOG(INFO) << "SSL_read returns " << rc
-                  << ". Content: " << std::string(buf, rc);
-        // Write at best effort.
-        SSL_write(ssl, buf, rc);
-      } else if (rc == 0) {
-        LOG(INFO) << "SSL_read returns EOF";
+      // int rc = SSL_read(ssl, buf, sizeof(buf));
+      // if (rc > 0) {
+      //   LOG(INFO) << "SSL_read returns " << rc
+      //             << ". Content: " << std::string(buf, rc);
+      //   // Write at best effort.
+      //   SSL_write(ssl, buf, rc);
+      // } else if (rc == 0) {
+      //   LOG(INFO) << "SSL_read returns EOF";
+      // } else {
+      //   LOG(INFO) << "SSL_read returns error: " << rc;
+      // }
+
+      ClientSocket origin;
+      if (origin.connect("127.0.0.1", 9000)) {
+        LOG(INFO) << "connected to origin";
       } else {
-        LOG(INFO) << "SSL_read returns error: " << rc;
+        LOG(ERROR) << "fail to connect origin";
       }
+      if (n_read > 0) {
+        int res = 0;
+        res = ::write(origin.fd_, buf, n_read);
+        if (res > 0) {
+          LOG(INFO) << "write to origin: " << std::string(buf, res);
+        } else {
+          LOG(ERROR) << "error write to origin: " << strerror(errno);
+        }
+        res = ::read(origin.fd_, buf, sizeof(buf));
+        if (res >= 0) {
+          LOG(INFO) << "read from origin: " << std::string(buf, res);
+        } else {
+          LOG(ERROR) << "error read from origin: " << strerror(errno);
+        }
+      }
+      SSL_shutdown(ssl);
+      BIO_free(bio);
+      SSL_free(ssl);
+      // client socket is destroyed here.
+      // origin socket is destroyed here.
     }
-    SSL_shutdown(ssl);
-    BIO_free(bio);
-    SSL_free(ssl);
-    // client socket is destroyed here.
   }
 
   SSL_CTX_free(ctx);
