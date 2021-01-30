@@ -45,8 +45,8 @@ struct {
 
 SEC("prog_parser")
 int _prog_parser(struct __sk_buff *skb) {
-  // char debug_msg[] = "prog_parser called\n";
-  // bpf_trace_printk(debug_msg, sizeof(debug_msg));
+  char debug_msg[] = "prog_parser called\n";
+  bpf_trace_printk(debug_msg, sizeof(debug_msg));
   return skb->len;
 }
 
@@ -63,5 +63,7 @@ int _prog_verdict(struct __sk_buff *skb) {
       .rport = 0,
       .family = 0,
   };
+  // TODO(lambdai): fill all the fields.
+  conn_key.lport = skb->local_port;
   return bpf_sk_redirect_hash(skb, &peer_socks, &conn_key, 0);
 }
