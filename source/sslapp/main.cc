@@ -2,6 +2,7 @@
 #include <cerrno>
 #include <cstring>
 #include <memory>
+#include <poll.h>
 #include <stdio.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -11,6 +12,8 @@
 #include <sstream>
 
 #include "glog/logging.h"
+#include "source/loader/cluster.h"
+#include "source/loader/loader.h"
 
 #include "external/boringssl/src/include/openssl/bio.h"
 #include "external/boringssl/src/include/openssl/err.h"
@@ -28,6 +31,7 @@
 // originate from kernel/include/uapi/linux/tls.h
 #include "linux/tls.h"
 
+static bool do_sockhash = true;
 class SslOnce {
 public:
   static void init() {
@@ -227,6 +231,10 @@ int main(int argc, char **argv) {
 
   SslOnce::init();
 
+  LOG(INFO) << "setup bpf start";
+  do_bpf_setup();
+  LOG(INFO) << "setup bpf end";
+
   // For now we will play with TLS instead of DTLS.
   // SSLv23_server_method calls TLS_method. Other version sugar method should be
   // achieved by further SSL_CTX_set_min/max_proto_version(SSL_CTX *ctx,
@@ -309,14 +317,29 @@ int main(int argc, char **argv) {
         LOG(FATAL) << "Failed in setup kernel crypto RX";
       }
       LOG(INFO) << "setsockopt SOL_TLS at TX";
-      ::write(client->fd_, "abc", 3);
-      int ssl_rc = ::read(client->fd_, buf, sizeof(buf) - 1);
-      if (ssl_rc > 0) {
-        n_read = ssl_rc;
-        // buf[ssl_rc] = '\0';
-        LOG(INFO) << "Read record from kernel: " << std::string(buf, n_read);
+      if (!do_sockhash) {
+        int n = ::read(client->fd_, buf, sizeof(buf));
+        if (n > 0) {
+          LOG(INFO) << "kernel ssl read: " << std::string(buf, n);
+        } else {
+          LOG(ERROR) << "kernel ssl read err";
+        }
+        n = ::write(client->fd_, "abc", 3);
+        if (n > 0) {
+          LOG(INFO) << "kernel ssl write: " << std::string("abc", n);
+        } else {
+          LOG(ERROR) << "kernel ssl write err";
+        }
+        int ssl_rc = ::read(client->fd_, buf, sizeof(buf) - 1);
+        if (ssl_rc > 0) {
+          n_read = ssl_rc;
+          // buf[ssl_rc] = '\0';
+          LOG(INFO) << "Read record from kernel: " << std::string(buf, n_read);
+        } else {
+          LOG(INFO) << "Error read record from kernel";
+        }
       } else {
-        LOG(INFO) << "Error read record from kernel";
+        LOG(INFO) << "No pre ssl read or ssl write in sockhash";
       }
       // int rc = SSL_read(ssl, buf, sizeof(buf));
       // if (rc > 0) {
@@ -336,21 +359,42 @@ int main(int argc, char **argv) {
       } else {
         LOG(ERROR) << "fail to connect origin";
       }
-      if (n_read > 0) {
-        int res = 0;
-        res = ::write(origin.fd_, buf, n_read);
-        if (res > 0) {
-          LOG(INFO) << "write to origin: " << std::string(buf, res);
-        } else {
-          LOG(ERROR) << "error write to origin: " << strerror(errno);
+      if (!do_sockhash) {
+        if (n_read > 0) {
+          int res = 0;
+          res = ::write(origin.fd_, buf, n_read);
+          if (res > 0) {
+            LOG(INFO) << "write to origin: " << std::string(buf, res);
+          } else {
+            LOG(ERROR) << "error write to origin: " << strerror(errno);
+          }
+          res = ::read(origin.fd_, buf, sizeof(buf));
+          if (res >= 0) {
+            LOG(INFO) << "read from origin: " << std::string(buf, res);
+          } else {
+            LOG(ERROR) << "error read from origin: " << strerror(errno);
+          }
         }
-        res = ::read(origin.fd_, buf, sizeof(buf));
-        if (res >= 0) {
-          LOG(INFO) << "read from origin: " << std::string(buf, res);
-        } else {
-          LOG(ERROR) << "error read from origin: " << strerror(errno);
-        }
+      } else {
+        LOG(INFO) << "kernel bpf map update";
+        cluster_insert_conn(map_fd, origin.fd_);
+        cluster_insert_conn(map_fd, client->fd_);
+
+        do {
+          struct pollfd pfd;
+          pfd.fd = origin.fd_;
+          pfd.events = POLLRDHUP;
+
+          int ret = poll(&pfd, 1, 1000);
+          if (ret == -1) {
+            LOG(ERROR) << "poll eror: " << ret;
+          } else if (ret == 0) {
+            LOG(INFO) << "poll timeout";
+          }
+        } while (1);
+        LOG(INFO) << "end of proxy";
       }
+
       SSL_shutdown(ssl);
       BIO_free(bio);
       SSL_free(ssl);
